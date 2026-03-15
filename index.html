@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Room Planner</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="orientation-warning" class="orientation-warning">
+      横画面での利用を推奨します。スマホやタブレットでは端末を横向きにしてください。
+    </div>
+
+    <div class="app-shell">
+      <aside class="panel sidebar left-sidebar">
+        <div class="panel-header">
+          <p class="eyebrow">Furniture</p>
+          <h1>家具ライブラリ</h1>
+          <p class="panel-copy">登録済み家具を中央へ追加します。</p>
+        </div>
+
+        <section class="control-section">
+          <div class="section-title-row">
+            <h2>家具登録</h2>
+            <button id="toggle-item-form" class="ghost-button" type="button">追加</button>
+          </div>
+          <form id="item-form" class="stack-form is-hidden">
+            <label>
+              名前
+              <input id="item-name" name="name" type="text" maxlength="20" value="机" />
+            </label>
+            <label>
+              幅(mm)
+              <input id="item-width" name="width" type="number" min="100" step="50" value="1200" />
+            </label>
+            <label>
+              奥行(mm)
+              <input id="item-depth" name="depth" type="number" min="100" step="50" value="600" />
+            </label>
+            <label>
+              高さ(mm)
+              <input id="item-height" name="height" type="number" min="100" step="50" value="720" />
+            </label>
+            <button type="submit">登録する</button>
+          </form>
+          <div id="library" class="library-grid"></div>
+        </section>
+
+        <section class="control-section">
+          <div class="section-title-row">
+            <h2>表示</h2>
+          </div>
+          <div class="stack-form">
+            <label>
+              文字サイズ
+              <input id="font-scale" type="range" min="82" max="112" step="2" value="90" />
+            </label>
+            <label>
+              画面倍率
+              <input id="zoom-scale" type="range" min="60" max="140" step="5" value="100" />
+            </label>
+            <label class="toggle-row">
+              <span>グリッド表示</span>
+              <input id="grid-toggle" type="checkbox" checked />
+            </label>
+          </div>
+          <div class="inline-metrics">
+            <span id="font-scale-value">90%</span>
+            <span id="zoom-scale-value">100%</span>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <section class="panel canvas-panel">
+          <div class="canvas-header">
+            <div>
+              <p class="eyebrow">Top View</p>
+              <h2>見下ろし配置</h2>
+            </div>
+            <div class="header-tools">
+              <span id="room-size-label" class="size-pill">3600mm × 2800mm</span>
+              <button id="open-room-modal" class="ghost-button" type="button">編集</button>
+              <button id="undo-button" class="ghost-button" type="button">アンドゥ</button>
+              <button id="reset-layout" class="ghost-button" type="button">初期化</button>
+            </div>
+          </div>
+          <div id="notice" class="notice" role="status" aria-live="polite"></div>
+          <div id="planner-frame" class="planner-frame">
+            <div id="room-canvas" class="room-canvas" aria-label="部屋平面図">
+              <button class="wall wall-top" data-wall="top" type="button">上の壁</button>
+              <button class="wall wall-right" data-wall="right" type="button">右の壁</button>
+              <button class="wall wall-bottom" data-wall="bottom" type="button">下の壁</button>
+              <button class="wall wall-left" data-wall="left" type="button">左の壁</button>
+              <div id="fixture-layer" class="fixture-layer"></div>
+              <div id="item-layer" class="item-layer"></div>
+              <div id="floating-info" class="floating-info is-hidden"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel info-panel">
+          <div class="info-block">
+            <p class="eyebrow">Wall Detail</p>
+            <h2 id="detail-title">壁情報</h2>
+            <div id="wall-detail" class="detail-card">
+              壁をクリックすると、その壁に対する家具の位置と高さを表示します。
+            </div>
+          </div>
+          <div class="info-block">
+            <p class="eyebrow">Selection</p>
+            <h2>選択情報</h2>
+            <div id="item-detail" class="detail-card">
+              家具や設備をクリックすると寸法と位置が表示されます。
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="panel sidebar right-sidebar">
+        <div class="panel-header">
+          <p class="eyebrow">Fixture</p>
+          <h1>設備ライブラリ</h1>
+          <p class="panel-copy">設備の追加と編集を行います。</p>
+        </div>
+
+        <section class="control-section">
+          <div class="section-title-row">
+            <h2>設備追加</h2>
+            <button id="toggle-fixture-form" class="ghost-button" type="button">追加</button>
+          </div>
+          <form id="fixture-form" class="stack-form is-hidden">
+            <label>
+              種類
+              <select id="fixture-kind" name="kind">
+                <option value="door">ドア</option>
+                <option value="outlet">コンセント</option>
+                <option value="tv">テレビ線</option>
+                <option value="window">窓</option>
+              </select>
+            </label>
+            <label>
+              壁
+              <select id="fixture-wall" name="wall">
+                <option value="top">上</option>
+                <option value="right">右</option>
+                <option value="bottom">下</option>
+                <option value="left">左</option>
+              </select>
+            </label>
+            <label>
+              壁に沿った位置(mm)
+              <input id="fixture-offset" name="offset" type="number" min="0" step="50" value="400" />
+            </label>
+            <label>
+              幅(mm)
+              <input id="fixture-size" name="size" type="number" min="50" step="50" value="900" />
+            </label>
+            <label id="fixture-sill-group" class="is-hidden">
+              窓下枠の高さ(mm)
+              <input id="fixture-sill" name="sillHeight" type="number" min="0" step="50" value="900" />
+            </label>
+            <button id="fixture-submit-button" type="submit">追加する</button>
+          </form>
+        </section>
+
+        <section class="control-section">
+          <div class="section-title-row">
+            <h2>設備一覧</h2>
+          </div>
+          <ul id="fixture-list" class="fixture-list"></ul>
+        </section>
+      </aside>
+    </div>
+
+    <div id="room-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="room-modal-title">
+      <div class="modal-card">
+        <div class="section-title-row">
+          <h2 id="room-modal-title">部屋サイズを編集</h2>
+          <button id="close-room-modal" class="ghost-button" type="button">閉じる</button>
+        </div>
+        <form id="room-form" class="stack-form">
+          <label>
+            幅(mm)
+            <input id="room-width" name="width" type="number" min="1000" step="100" value="3600" />
+          </label>
+          <label>
+            奥行(mm)
+            <input id="room-depth" name="depth" type="number" min="1000" step="100" value="2800" />
+          </label>
+          <button type="submit">更新する</button>
+        </form>
+      </div>
+    </div>
+
+    <template id="library-item-template">
+      <button class="library-card" type="button"></button>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
