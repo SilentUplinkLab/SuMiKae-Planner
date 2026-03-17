@@ -386,10 +386,16 @@ function renderRoom() {
   const frameRect = plannerFrame.getBoundingClientRect();
   const availableWidth = Math.max(frameRect.width - 32, 280);
   const availableHeight = Math.max(frameRect.height - 32, 280);
-  const fitScale = Math.min(availableWidth / state.room.width, availableHeight / state.room.depth);
+  const computedStyle = getComputedStyle(roomCanvas);
+  const borderWidth = parseFloat(computedStyle.borderLeftWidth) + parseFloat(computedStyle.borderRightWidth);
+  const borderHeight = parseFloat(computedStyle.borderTopWidth) + parseFloat(computedStyle.borderBottomWidth);
+  const fitScale = Math.min(
+    (availableWidth - borderWidth) / state.room.width,
+    (availableHeight - borderHeight) / state.room.depth,
+  );
   const scale = Math.max(fitScale * (state.ui.zoomPercent / 100), 0.04);
-  roomCanvas.style.width = `${Math.round(state.room.width * scale)}px`;
-  roomCanvas.style.height = `${Math.round(state.room.depth * scale)}px`;
+  roomCanvas.style.width = `${Math.round(state.room.width * scale + borderWidth)}px`;
+  roomCanvas.style.height = `${Math.round(state.room.depth * scale + borderHeight)}px`;
   plannerFrame.classList.toggle("grid-hidden", !state.ui.showGrid);
 }
 
@@ -419,38 +425,34 @@ function renderFixtures() {
 }
 
 function positionFixture(el, fixture) {
-  const rect = roomCanvas.getBoundingClientRect();
-  const scaleX = rect.width / state.room.width;
-  const scaleY = rect.height / state.room.depth;
-  const size = Math.max(fixture.size * (isHorizontalWall(fixture.wall) ? scaleX : scaleY), 18);
+  const metrics = getCanvasMetrics();
+  const size = Math.max(fixture.size * metrics.scale, 18);
   if (isHorizontalWall(fixture.wall)) {
     el.style.width = `${size}px`;
     el.style.height = fixture.kind === "window" ? "20px" : "24px";
-    el.style.left = `${fixture.offset * scaleX}px`;
-    el.style.top = fixture.wall === "top" ? `${WALL_ATTACH_MARGIN}px` : `${rect.height - (fixture.kind === "window" ? 20 : 24) - WALL_ATTACH_MARGIN}px`;
+    el.style.left = `${fixture.offset * metrics.scale}px`;
+    el.style.top = fixture.wall === "top" ? `${WALL_ATTACH_MARGIN}px` : `${metrics.height - (fixture.kind === "window" ? 20 : 24) - WALL_ATTACH_MARGIN}px`;
   } else {
     el.style.width = fixture.kind === "window" ? "20px" : "24px";
     el.style.height = `${size}px`;
-    el.style.top = `${fixture.offset * scaleY}px`;
-    el.style.left = fixture.wall === "left" ? `${WALL_ATTACH_MARGIN}px` : `${rect.width - (fixture.kind === "window" ? 20 : 24) - WALL_ATTACH_MARGIN}px`;
+    el.style.top = `${fixture.offset * metrics.scale}px`;
+    el.style.left = fixture.wall === "left" ? `${WALL_ATTACH_MARGIN}px` : `${metrics.width - (fixture.kind === "window" ? 20 : 24) - WALL_ATTACH_MARGIN}px`;
   }
 }
 
 function renderItems() {
   itemLayer.innerHTML = "";
-  const rect = roomCanvas.getBoundingClientRect();
-  const scaleX = rect.width / state.room.width;
-  const scaleY = rect.height / state.room.depth;
+  const metrics = getCanvasMetrics();
   for (const item of state.items) {
     const el = document.createElement("button");
     el.type = "button";
     el.className = "item";
     if (state.selectedItemId === item.id) el.classList.add("selected");
     el.dataset.itemId = item.id;
-    el.style.left = `${item.x * scaleX}px`;
-    el.style.top = `${item.y * scaleY}px`;
-    el.style.width = `${Math.max(item.width * scaleX, 44)}px`;
-    el.style.height = `${Math.max(item.depth * scaleY, 44)}px`;
+    el.style.left = `${item.x * metrics.scale}px`;
+    el.style.top = `${item.y * metrics.scale}px`;
+    el.style.width = `${Math.max(item.width * metrics.scale, 44)}px`;
+    el.style.height = `${Math.max(item.depth * metrics.scale, 44)}px`;
     el.style.background = `${item.color}33`;
     el.style.borderColor = item.color;
     el.setAttribute("aria-label", `${item.name} ${item.width}×${item.depth}`);
@@ -588,7 +590,7 @@ function startItemDrag(event) {
   const item = state.items.find((entry) => entry.id === itemEl.dataset.itemId);
   if (!item) return;
   selectItem(item.id);
-  const rect = roomCanvas.getBoundingClientRect();
+  const metrics = getCanvasMetrics();
   dragState = {
     type: "item",
     id: item.id,
@@ -596,8 +598,8 @@ function startItemDrag(event) {
     startY: item.y,
     startWidth: item.width,
     startDepth: item.depth,
-    pointerOffsetX: event.clientX - rect.left - item.x * (rect.width / state.room.width),
-    pointerOffsetY: event.clientY - rect.top - item.y * (rect.height / state.room.depth),
+    pointerOffsetX: event.clientX - metrics.left - item.x * metrics.scale,
+    pointerOffsetY: event.clientY - metrics.top - item.y * metrics.scale,
     lastClientX: event.clientX,
     lastClientY: event.clientY,
   };
@@ -612,14 +614,14 @@ function startFixtureDrag(event) {
   const fixture = state.fixtures.find((entry) => entry.id === fixtureEl.dataset.fixtureId);
   if (!fixture) return;
   selectFixture(fixture.id);
-  const rect = roomCanvas.getBoundingClientRect();
+  const metrics = getCanvasMetrics();
   dragState = {
     type: "fixture",
     id: fixture.id,
     startOffset: fixture.offset,
     pointerOffset: isHorizontalWall(fixture.wall)
-      ? event.clientX - rect.left - fixture.offset * (rect.width / state.room.width)
-      : event.clientY - rect.top - fixture.offset * (rect.height / state.room.depth),
+      ? event.clientX - metrics.left - fixture.offset * metrics.scale
+      : event.clientY - metrics.top - fixture.offset * metrics.scale,
     startWall: fixture.wall,
   };
   fixtureEl.classList.add("dragging");
@@ -632,11 +634,11 @@ function onDrag(event) {
   if (dragState.type === "item") {
     const item = state.items.find((entry) => entry.id === dragState.id);
     if (!item) return;
-    const rect = roomCanvas.getBoundingClientRect();
+    const metrics = getCanvasMetrics();
     dragState.lastClientX = event.clientX;
     dragState.lastClientY = event.clientY;
-    item.x = clamp((event.clientX - rect.left - dragState.pointerOffsetX) / (rect.width / state.room.width), 0, state.room.width - item.width);
-    item.y = clamp((event.clientY - rect.top - dragState.pointerOffsetY) / (rect.height / state.room.depth), 0, state.room.depth - item.depth);
+    item.x = clamp((event.clientX - metrics.left - dragState.pointerOffsetX) / metrics.scale, 0, state.room.width - item.width);
+    item.y = clamp((event.clientY - metrics.top - dragState.pointerOffsetY) / metrics.scale, 0, state.room.depth - item.depth);
     renderItems();
     renderSelectionDetail();
     if (state.selectedWall) renderWallDetail();
@@ -646,14 +648,13 @@ function onDrag(event) {
 
   const fixture = state.fixtures.find((entry) => entry.id === dragState.id);
   if (!fixture) return;
-  const rect = roomCanvas.getBoundingClientRect();
-  const localX = clamp(event.clientX - rect.left, 0, rect.width);
-  const localY = clamp(event.clientY - rect.top, 0, rect.height);
-  const snappedWall = findNearestWall(localX, localY, rect);
+  const metrics = getCanvasMetrics();
+  const localX = clamp(event.clientX - metrics.left, 0, metrics.width);
+  const localY = clamp(event.clientY - metrics.top, 0, metrics.height);
+  const snappedWall = findNearestWall(localX, localY, metrics);
   fixture.wall = snappedWall;
-  const scale = isHorizontalWall(snappedWall) ? rect.width / state.room.width : rect.height / state.room.depth;
   const pointer = isHorizontalWall(snappedWall) ? localX : localY;
-  const roomOffset = (pointer - dragState.pointerOffset) / scale;
+  const roomOffset = (pointer - dragState.pointerOffset) / metrics.scale;
   fixture.offset = clampFixtureOffset({ ...fixture, wall: snappedWall, offset: roomOffset });
   if (editingFixtureId === fixture.id) {
     fixtureWallInput.value = fixture.wall;
@@ -900,13 +901,27 @@ function rotateDraggedItem() {
   item.depth = nextDepth;
   item.x = clamp(item.x, 0, Math.max(state.room.width - item.width, 0));
   item.y = clamp(item.y, 0, Math.max(state.room.depth - item.depth, 0));
-  const rect = roomCanvas.getBoundingClientRect();
-  dragState.pointerOffsetX = dragState.lastClientX - rect.left - item.x * (rect.width / state.room.width);
-  dragState.pointerOffsetY = dragState.lastClientY - rect.top - item.y * (rect.height / state.room.depth);
+  const metrics = getCanvasMetrics();
+  dragState.pointerOffsetX = dragState.lastClientX - metrics.left - item.x * metrics.scale;
+  dragState.pointerOffsetY = dragState.lastClientY - metrics.top - item.y * metrics.scale;
   renderItems();
   renderSelectionDetail();
   if (state.selectedWall) renderWallDetail();
   showFloatingInfoForItem(item);
+}
+
+function getCanvasMetrics() {
+  const rect = roomCanvas.getBoundingClientRect();
+  const width = roomCanvas.clientWidth;
+  const height = roomCanvas.clientHeight;
+  const scale = Math.min(width / state.room.width, height / state.room.depth);
+  return {
+    left: rect.left + roomCanvas.clientLeft,
+    top: rect.top + roomCanvas.clientTop,
+    width,
+    height,
+    scale,
+  };
 }
 
 function findNearestWall(x, y, rect) {
