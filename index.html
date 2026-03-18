@@ -80,6 +80,8 @@
             </div>
             <div class="header-tools">
               <span id="room-size-label" class="size-pill">3600mm × 2800mm</span>
+              <button id="export-png" class="ghost-button" type="button">PNG出力</button>
+              <button id="export-pdf" class="ghost-button" type="button">PDF出力</button>
               <button id="open-room-modal" class="ghost-button" type="button">編集</button>
               <button id="undo-button" class="ghost-button" type="button">アンドゥ</button>
               <button id="reset-layout" class="ghost-button" type="button">初期化</button>
@@ -88,10 +90,6 @@
           <div id="notice" class="notice" role="status" aria-live="polite"></div>
           <div id="planner-frame" class="planner-frame">
             <div id="room-canvas" class="room-canvas" aria-label="部屋平面図">
-              <button class="wall wall-top" data-wall="top" type="button">上の壁</button>
-              <button class="wall wall-right" data-wall="right" type="button">右の壁</button>
-              <button class="wall wall-bottom" data-wall="bottom" type="button">下の壁</button>
-              <button class="wall wall-left" data-wall="left" type="button">左の壁</button>
               <div id="fixture-layer" class="fixture-layer"></div>
               <div id="item-layer" class="item-layer"></div>
               <div id="floating-info" class="floating-info is-hidden"></div>
@@ -100,13 +98,6 @@
         </section>
 
         <section class="panel info-panel">
-          <div class="info-block">
-            <p class="eyebrow">Wall Detail</p>
-            <h2 id="detail-title">壁情報</h2>
-            <div id="wall-detail" class="detail-card">
-              壁をクリックすると、その壁に対する家具の位置と高さを表示します。
-            </div>
-          </div>
           <div class="info-block">
             <p class="eyebrow">Selection</p>
             <h2>選択情報</h2>

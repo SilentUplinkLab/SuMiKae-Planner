@@ -142,6 +142,13 @@ button:hover {
   box-shadow: 0 10px 18px rgba(200, 92, 58, 0.18);
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+  transform: none;
+  box-shadow: none;
+}
+
 .ghost-button {
   background: transparent;
   color: var(--ink);
@@ -251,50 +258,6 @@ button:hover {
   border: 8px solid #7e6246;
   border-radius: 22px;
   overflow: hidden;
-}
-
-.wall {
-  position: absolute;
-  background: transparent;
-  color: rgba(47, 122, 120, 0.72);
-  font-size: 0.72rem;
-  padding: 4px 8px;
-  box-shadow: none;
-}
-
-.wall.active {
-  background: rgba(47, 122, 120, 0.08);
-}
-
-.wall-top,
-.wall-bottom {
-  left: 12px;
-  width: calc(100% - 24px);
-  height: 18px;
-}
-
-.wall-top {
-  top: 0;
-}
-
-.wall-bottom {
-  bottom: 0;
-}
-
-.wall-left,
-.wall-right {
-  top: 12px;
-  width: 18px;
-  height: calc(100% - 24px);
-  writing-mode: vertical-rl;
-}
-
-.wall-left {
-  left: 0;
-}
-
-.wall-right {
-  right: 0;
 }
 
 .fixture-layer,
@@ -413,7 +376,7 @@ button:hover {
 
 .info-panel {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   padding: 18px;
 }
@@ -433,6 +396,12 @@ button:hover {
   display: flex;
   justify-content: space-between;
   gap: 10px;
+}
+
+.detail-delete {
+  width: 100%;
+  margin-top: 14px;
+  background: #b2452f;
 }
 
 .modal {

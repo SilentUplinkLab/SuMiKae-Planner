@@ -1,5 +1,9 @@
 const STORAGE_KEY = "room-planner-state-v3";
 const WALL_DEPTH_LIMIT = 120;
+const EXPORT_CANVAS_WIDTH = 1800;
+const EXPORT_PADDING = 72;
+const EXPORT_HEADER_HEIGHT = 120;
+const EXPORT_DETAIL_WIDTH = 320;
 
 const defaultLibrary = [
   { id: crypto.randomUUID(), name: "机", width: 1200, depth: 600, height: 720, color: "#d6724f" },
@@ -20,7 +24,6 @@ const defaultState = {
     { id: crypto.randomUUID(), libraryId: defaultLibrary[0].id, name: "机", width: 1200, depth: 600, height: 720, x: 320, y: 420, color: "#d6724f" },
     { id: crypto.randomUUID(), libraryId: defaultLibrary[2].id, name: "カラーボックス", width: 420, depth: 290, height: 890, x: 2800, y: 520, color: "#6ca9a0" },
   ],
-  selectedWall: null,
   selectedItemId: null,
   selectedFixtureId: null,
   ui: {
@@ -62,9 +65,7 @@ const itemLayer = document.querySelector("#item-layer");
 const library = document.querySelector("#library");
 const fixtureList = document.querySelector("#fixture-list");
 const roomSizeLabel = document.querySelector("#room-size-label");
-const wallDetail = document.querySelector("#wall-detail");
 const itemDetail = document.querySelector("#item-detail");
-const detailTitle = document.querySelector("#detail-title");
 const resetButton = document.querySelector("#reset-layout");
 const undoButton = document.querySelector("#undo-button");
 const notice = document.querySelector("#notice");
@@ -80,6 +81,8 @@ const openRoomModalButton = document.querySelector("#open-room-modal");
 const closeRoomModalButton = document.querySelector("#close-room-modal");
 const roomModal = document.querySelector("#room-modal");
 const floatingInfo = document.querySelector("#floating-info");
+const exportPngButton = document.querySelector("#export-png");
+const exportPdfButton = document.querySelector("#export-pdf");
 
 seedInputs();
 bindEvents();
@@ -97,7 +100,6 @@ function loadState() {
     fixtures: (parsed.fixtures || defaultState.fixtures).map(normalizeFixture),
     library: (parsed.library || defaultState.library).map(normalizeLibraryEntry),
     items: (parsed.items || defaultState.items).map(normalizeItem),
-    selectedWall: parsed.selectedWall || null,
     selectedItemId: parsed.selectedItemId || null,
     selectedFixtureId: parsed.selectedFixtureId || null,
     ui: {
@@ -226,11 +228,10 @@ function bindEvents() {
     }
   });
 
-  roomCanvas.querySelectorAll(".wall").forEach((wallButton) => {
-    wallButton.addEventListener("click", () => {
-      state.selectedWall = wallButton.dataset.wall;
-      renderAll();
-    });
+  itemDetail.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-delete-selected]");
+    if (!deleteButton) return;
+    deleteSelectedObject();
   });
 
   fixtureList.addEventListener("click", (event) => {
@@ -327,6 +328,12 @@ function bindEvents() {
 
   openRoomModalButton.addEventListener("click", openRoomModal);
   closeRoomModalButton.addEventListener("click", closeRoomModal);
+  exportPngButton.addEventListener("click", () => {
+    exportLayout("png");
+  });
+  exportPdfButton.addEventListener("click", () => {
+    exportLayout("pdf");
+  });
   roomModal.addEventListener("click", (event) => {
     if (event.target === roomModal) closeRoomModal();
   });
@@ -353,6 +360,10 @@ function bindEvents() {
       closeRoomModal();
       hideFloatingInfo();
     }
+    if ((event.key === "Delete" || event.key === "Backspace") && canHandleDeleteShortcut(event.target)) {
+      event.preventDefault();
+      deleteSelectedObject();
+    }
   });
 
   window.addEventListener("resize", () => {
@@ -369,8 +380,6 @@ function renderAll() {
   renderFixtures();
   renderItems();
   renderFixtureList();
-  renderWallSelection();
-  renderWallDetail();
   renderSelectionDetail();
   renderMetrics();
   syncFixtureFormVisibility();
@@ -477,40 +486,6 @@ function renderFixtureList() {
   }
 }
 
-function renderWallSelection() {
-  roomCanvas.querySelectorAll(".wall").forEach((wallButton) => {
-    wallButton.classList.toggle("active", wallButton.dataset.wall === state.selectedWall);
-  });
-}
-
-function renderWallDetail() {
-  if (!state.selectedWall) {
-    detailTitle.textContent = "壁情報";
-    wallDetail.textContent = "壁をクリックすると、その壁に対する家具の位置と高さを表示します。";
-    return;
-  }
-  detailTitle.textContent = `${wallLabel(state.selectedWall)}の壁`;
-  const items = state.items.map((item) => describeAgainstWall(item, state.selectedWall)).sort((a, b) => a.from - b.from);
-  const windows = state.fixtures.filter((fixture) => fixture.kind === "window" && fixture.wall === state.selectedWall);
-  wallDetail.innerHTML = [
-    ...items.map((item) => `
-      <div>
-        <strong>${item.name}</strong>
-        <div class="metric"><span>壁に沿った範囲</span><span>${item.from} - ${item.to}mm</span></div>
-        <div class="metric"><span>壁からの離れ</span><span>${item.distance}mm</span></div>
-        <div class="metric"><span>家具の高さ</span><span>${item.height}mm</span></div>
-      </div>
-    `),
-    ...windows.map((fixture) => `
-      <div>
-        <strong>窓</strong>
-        <div class="metric"><span>範囲</span><span>${fixture.offset} - ${fixture.offset + fixture.size}mm</span></div>
-        <div class="metric"><span>下枠高さ</span><span>${fixture.sillHeight}mm</span></div>
-      </div>
-    `),
-  ].join("") || "情報がありません。";
-}
-
 function renderSelectionDetail() {
   const item = state.items.find((entry) => entry.id === state.selectedItemId);
   if (item) {
@@ -518,7 +493,7 @@ function renderSelectionDetail() {
       ["位置", `${round(item.x)}mm, ${round(item.y)}mm`],
       ["大きさ", `${item.width} × ${item.depth}mm`],
       ["高さ", `${item.height}mm`],
-    ]);
+    ], "家具を削除");
     return;
   }
   const fixture = state.fixtures.find((entry) => entry.id === state.selectedFixtureId);
@@ -528,7 +503,7 @@ function renderSelectionDetail() {
       ["位置", `${round(fixture.offset)}mm`],
       ["幅", `${fixture.size}mm`],
       ...(fixture.kind === "window" ? [["下枠高さ", `${fixture.sillHeight}mm`]] : []),
-    ]);
+    ], "設備を削除");
     return;
   }
   itemDetail.textContent = "家具や設備をクリックすると寸法と位置が表示されます。";
@@ -641,7 +616,6 @@ function onDrag(event) {
     item.y = clamp((event.clientY - metrics.top - dragState.pointerOffsetY) / metrics.scale, 0, state.room.depth - item.depth);
     renderItems();
     renderSelectionDetail();
-    if (state.selectedWall) renderWallDetail();
     showFloatingInfoForItem(item);
     return;
   }
@@ -663,7 +637,6 @@ function onDrag(event) {
   renderFixtures();
   renderFixtureList();
   renderSelectionDetail();
-  if (state.selectedWall) renderWallDetail();
   showFloatingInfoForFixture(fixture);
 }
 
@@ -721,7 +694,6 @@ function pushHistory(customEntry) {
     fixtures: state.fixtures,
     library: state.library,
     items: state.items,
-    selectedWall: state.selectedWall,
     selectedItemId: state.selectedItemId,
     selectedFixtureId: state.selectedFixtureId,
     ui: { ...state.ui, roomModalOpen: false },
@@ -757,6 +729,29 @@ function undoLastAction() {
   renderAll();
 }
 
+function deleteSelectedObject() {
+  const item = state.items.find((entry) => entry.id === state.selectedItemId);
+  if (item) {
+    pushHistory();
+    state.items = state.items.filter((entry) => entry.id !== item.id);
+    state.selectedItemId = null;
+    hideFloatingInfo();
+    renderAll();
+    showNotice("家具を削除しました。");
+    return;
+  }
+
+  const fixture = state.fixtures.find((entry) => entry.id === state.selectedFixtureId);
+  if (!fixture) return;
+  pushHistory();
+  state.fixtures = state.fixtures.filter((entry) => entry.id !== fixture.id);
+  state.selectedFixtureId = null;
+  if (editingFixtureId === fixture.id) editingFixtureId = null;
+  hideFloatingInfo();
+  renderAll();
+  showNotice("設備を削除しました。");
+}
+
 function clampObjectsToRoom() {
   for (const fixture of state.fixtures) fixture.offset = clampFixtureOffset(fixture);
   for (const item of state.items) {
@@ -766,8 +761,10 @@ function clampObjectsToRoom() {
 }
 
 function findFreePlacement(item) {
-  for (let y = 60; y <= state.room.depth - item.depth; y += 80) {
-    for (let x = 60; x <= state.room.width - item.width; x += 80) {
+  const maxY = state.room.depth - item.depth;
+  const maxX = state.room.width - item.width;
+  for (let y = 0; y <= maxY; y += 80) {
+    for (let x = 0; x <= maxX; x += 80) {
       const candidate = { ...item, x, y };
       if (!findOverlappingItem(candidate) && !findBlockingWindow(candidate)) return { x, y };
     }
@@ -789,13 +786,6 @@ function findBlockingWindow(item) {
   });
 }
 
-function describeAgainstWall(item, wall) {
-  if (wall === "top") return { name: item.name, from: round(item.x), to: round(item.x + item.width), distance: round(item.y), height: item.height };
-  if (wall === "bottom") return { name: item.name, from: round(item.x), to: round(item.x + item.width), distance: round(state.room.depth - (item.y + item.depth)), height: item.height };
-  if (wall === "left") return { name: item.name, from: round(item.y), to: round(item.y + item.depth), distance: round(item.x), height: item.height };
-  return { name: item.name, from: round(item.y), to: round(item.y + item.depth), distance: round(state.room.width - (item.x + item.width)), height: item.height };
-}
-
 function showFloatingInfoForItem(item) {
   floatingInfo.innerHTML = `<strong>${item.name}</strong><br>位置: ${round(item.x)}mm, ${round(item.y)}mm<br>大きさ: ${item.width} × ${item.depth}mm<br>高さ: ${item.height}mm<br>Rキー: 90度回転`;
   floatingInfo.classList.remove("is-hidden");
@@ -810,8 +800,13 @@ function hideFloatingInfo() {
   floatingInfo.classList.add("is-hidden");
 }
 
-function detailMarkup(title, rows) {
-  return `<strong>${title}</strong>${rows.map(([label, value]) => `<div class="metric"><span>${label}</span><span>${value}</span></div>`).join("")}`;
+function detailMarkup(title, rows, deleteLabel = "") {
+  return `<strong>${title}</strong>${rows.map(([label, value]) => `<div class="metric"><span>${label}</span><span>${value}</span></div>`).join("")}${deleteLabel ? `<button class="detail-delete" type="button" data-delete-selected>${deleteLabel}</button>` : ""}`;
+}
+
+function canHandleDeleteShortcut(target) {
+  if (!(target instanceof HTMLElement)) return true;
+  return !target.closest("input, textarea, select, button, [contenteditable='true']");
 }
 
 function clampFixtureOffset(fixture) {
@@ -906,7 +901,6 @@ function rotateDraggedItem() {
   dragState.pointerOffsetY = dragState.lastClientY - metrics.top - item.y * metrics.scale;
   renderItems();
   renderSelectionDetail();
-  if (state.selectedWall) renderWallDetail();
   showFloatingInfoForItem(item);
 }
 
@@ -980,9 +974,339 @@ function saveState() {
     fixtures: state.fixtures,
     library: state.library,
     items: state.items,
-    selectedWall: state.selectedWall,
     selectedItemId: state.selectedItemId,
     selectedFixtureId: state.selectedFixtureId,
     ui: { ...state.ui, roomModalOpen: false },
   }));
+}
+
+async function exportLayout(format) {
+  const button = format === "png" ? exportPngButton : exportPdfButton;
+  const defaultLabel = format === "png" ? "PNG出力" : "PDF出力";
+  button.disabled = true;
+  button.textContent = "出力中...";
+  try {
+    const canvas = renderExportCanvas();
+    const blob = format === "png" ? await canvasToBlob(canvas, "image/png") : await buildPdfBlobFromCanvas(canvas);
+    downloadBlob(blob, createExportFilename(format));
+    showNotice(`${format.toUpperCase()}を書き出しました。`);
+  } catch (error) {
+    console.error(error);
+    showNotice(`${format.toUpperCase()}の書き出しに失敗しました。`);
+  } finally {
+    button.disabled = false;
+    button.textContent = defaultLabel;
+  }
+}
+
+function renderExportCanvas() {
+  const canvas = document.createElement("canvas");
+  const roomWidth = state.room.width;
+  const roomDepth = state.room.depth;
+  const drawableWidth = EXPORT_CANVAS_WIDTH - EXPORT_PADDING * 2 - EXPORT_DETAIL_WIDTH;
+  const roomScale = drawableWidth / roomWidth;
+  const roomPixelHeight = Math.round(roomDepth * roomScale);
+  canvas.width = EXPORT_CANVAS_WIDTH;
+  canvas.height = EXPORT_HEADER_HEIGHT + EXPORT_PADDING * 2 + roomPixelHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas context is not available.");
+
+  drawExportBackground(ctx, canvas.width, canvas.height);
+  drawExportHeader(ctx, canvas.width);
+
+  const roomX = EXPORT_PADDING;
+  const roomY = EXPORT_HEADER_HEIGHT;
+  const roomRect = { x: roomX, y: roomY, width: drawableWidth, height: roomPixelHeight, scale: roomScale };
+  drawExportRoom(ctx, roomRect);
+  drawExportFixtures(ctx, roomRect);
+  drawExportItems(ctx, roomRect);
+  drawExportLegend(ctx, roomRect);
+
+  return canvas;
+}
+
+function drawExportBackground(ctx, width, height) {
+  const background = ctx.createLinearGradient(0, 0, width, height);
+  background.addColorStop(0, "#f7f3ea");
+  background.addColorStop(1, "#ece4d8");
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, width, height);
+
+  const glowA = ctx.createRadialGradient(120, 80, 20, 120, 80, 240);
+  glowA.addColorStop(0, "rgba(200, 92, 58, 0.18)");
+  glowA.addColorStop(1, "rgba(200, 92, 58, 0)");
+  ctx.fillStyle = glowA;
+  ctx.fillRect(0, 0, width, height);
+
+  const glowB = ctx.createRadialGradient(width - 140, height - 120, 20, width - 140, height - 120, 260);
+  glowB.addColorStop(0, "rgba(47, 122, 120, 0.14)");
+  glowB.addColorStop(1, "rgba(47, 122, 120, 0)");
+  ctx.fillStyle = glowB;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function drawExportHeader(ctx, width) {
+  ctx.fillStyle = "#1e2430";
+  ctx.font = "600 42px Georgia, 'Yu Mincho', serif";
+  ctx.fillText("Room Planner", EXPORT_PADDING, 56);
+
+  ctx.fillStyle = "#6f6a62";
+  ctx.font = "500 24px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+  ctx.fillText(`部屋サイズ ${state.room.width}mm × ${state.room.depth}mm`, EXPORT_PADDING, 92);
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#2f7a78";
+  ctx.font = "600 22px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+  ctx.fillText(new Date().toLocaleDateString("ja-JP"), width - EXPORT_PADDING, 92);
+  ctx.textAlign = "left";
+}
+
+function drawExportRoom(ctx, roomRect) {
+  const { x, y, width, height } = roomRect;
+  const wallThickness = 18;
+
+  ctx.save();
+  roundedRect(ctx, x, y, width, height, 32);
+  ctx.clip();
+
+  const roomGradient = ctx.createLinearGradient(x, y, x + width, y + height);
+  roomGradient.addColorStop(0, "rgba(255, 255, 255, 0.92)");
+  roomGradient.addColorStop(1, "rgba(250, 233, 214, 0.94)");
+  ctx.fillStyle = roomGradient;
+  ctx.fillRect(x, y, width, height);
+
+  if (state.ui.showGrid) {
+    ctx.strokeStyle = "rgba(30, 36, 48, 0.07)";
+    ctx.lineWidth = 1;
+    const gridStep = Math.max(Math.round(300 * roomRect.scale), 18);
+    for (let gx = x; gx <= x + width; gx += gridStep) {
+      ctx.beginPath();
+      ctx.moveTo(gx, y);
+      ctx.lineTo(gx, y + height);
+      ctx.stroke();
+    }
+    for (let gy = y; gy <= y + height; gy += gridStep) {
+      ctx.beginPath();
+      ctx.moveTo(x, gy);
+      ctx.lineTo(x + width, gy);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+
+  ctx.fillStyle = "#7e6246";
+  roundedRect(ctx, x, y, width, height, 32);
+  ctx.lineWidth = wallThickness;
+  ctx.strokeStyle = "#7e6246";
+  ctx.stroke();
+}
+
+function drawExportFixtures(ctx, roomRect) {
+  for (const fixture of state.fixtures) {
+    const color = fixtureColor(fixture.kind);
+    const rect = getExportFixtureRect(fixture, roomRect);
+    ctx.fillStyle = color;
+    roundedRect(ctx, rect.x, rect.y, rect.width, rect.height, fixture.kind === "window" ? 8 : 10);
+    ctx.fill();
+  }
+}
+
+function drawExportItems(ctx, roomRect) {
+  for (const item of state.items) {
+    const x = roomRect.x + item.x * roomRect.scale;
+    const y = roomRect.y + item.y * roomRect.scale;
+    const width = Math.max(item.width * roomRect.scale, 44);
+    const height = Math.max(item.depth * roomRect.scale, 44);
+
+    ctx.fillStyle = `${item.color}33`;
+    ctx.strokeStyle = item.color;
+    ctx.lineWidth = 4;
+    roundedRect(ctx, x, y, width, height, 24);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#1e2430";
+    ctx.font = "600 18px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+    ctx.fillText(item.name, x + 12, y + 28, Math.max(width - 20, 20));
+    ctx.fillStyle = "#6f6a62";
+    ctx.font = "500 14px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+    ctx.fillText(`${item.width} × ${item.depth}mm`, x + 12, y + 48, Math.max(width - 20, 20));
+  }
+}
+
+function drawExportLegend(ctx, roomRect) {
+  const panelX = roomRect.x + roomRect.width + 28;
+  const panelY = roomRect.y;
+  const panelWidth = EXPORT_DETAIL_WIDTH - 28;
+  const lineHeight = 30;
+
+  ctx.fillStyle = "rgba(255, 250, 241, 0.9)";
+  ctx.strokeStyle = "rgba(30, 36, 48, 0.08)";
+  ctx.lineWidth = 1;
+  roundedRect(ctx, panelX, panelY, panelWidth, roomRect.height, 24);
+  ctx.fill();
+  ctx.stroke();
+
+  let cursorY = panelY + 36;
+  ctx.fillStyle = "#1e2430";
+  ctx.font = "600 24px Georgia, 'Yu Mincho', serif";
+  ctx.fillText("出力サマリー", panelX + 20, cursorY);
+
+  cursorY += 34;
+  ctx.fillStyle = "#6f6a62";
+  ctx.font = "500 16px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+  ctx.fillText(`家具 ${state.items.length} 点`, panelX + 20, cursorY);
+  cursorY += 22;
+  ctx.fillText(`設備 ${state.fixtures.length} 点`, panelX + 20, cursorY);
+
+  cursorY += 34;
+  ctx.fillStyle = "#1e2430";
+  ctx.font = "600 18px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+  ctx.fillText("設備凡例", panelX + 20, cursorY);
+
+  cursorY += 22;
+  for (const kind of ["door", "window", "outlet", "tv"]) {
+    ctx.fillStyle = fixtureColor(kind);
+    roundedRect(ctx, panelX + 20, cursorY - 12, 18, 18, 5);
+    ctx.fill();
+    ctx.fillStyle = "#6f6a62";
+    ctx.font = "500 15px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+    ctx.fillText(fixtureLabel(kind), panelX + 48, cursorY + 2);
+    cursorY += lineHeight;
+  }
+
+  cursorY += 16;
+  ctx.fillStyle = "#1e2430";
+  ctx.font = "600 18px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+  ctx.fillText("家具一覧", panelX + 20, cursorY);
+
+  cursorY += 24;
+  ctx.font = "500 14px 'Hiragino Sans', 'Noto Sans JP', sans-serif";
+  for (const item of state.items) {
+    if (cursorY > panelY + roomRect.height - 18) break;
+    ctx.fillStyle = item.color;
+    ctx.fillRect(panelX + 20, cursorY - 10, 10, 10);
+    ctx.fillStyle = "#6f6a62";
+    ctx.fillText(`${item.name} ${item.width}×${item.depth}`, panelX + 40, cursorY, panelWidth - 60);
+    cursorY += 24;
+  }
+}
+
+function getExportFixtureRect(fixture, roomRect) {
+  const thickness = fixture.kind === "window" ? 20 : 24;
+  const length = Math.max(fixture.size * roomRect.scale, 20);
+  if (isHorizontalWall(fixture.wall)) {
+    return {
+      x: roomRect.x + fixture.offset * roomRect.scale,
+      y: fixture.wall === "top" ? roomRect.y + 8 : roomRect.y + roomRect.height - thickness - 8,
+      width: length,
+      height: thickness,
+    };
+  }
+
+  return {
+    x: fixture.wall === "left" ? roomRect.x + 8 : roomRect.x + roomRect.width - thickness - 8,
+    y: roomRect.y + fixture.offset * roomRect.scale,
+    width: thickness,
+    height: length,
+  };
+}
+
+function roundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+function canvasToBlob(canvas, type, quality = 0.92) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error(`Failed to create ${type} blob.`));
+    }, type, quality);
+  });
+}
+
+async function buildPdfBlobFromCanvas(canvas) {
+  const jpegBlob = await canvasToBlob(canvas, "image/jpeg", 0.94);
+  const jpegBuffer = await jpegBlob.arrayBuffer();
+  const pdfBuffer = buildPdfFromJpeg(jpegBuffer, canvas.width, canvas.height);
+  return new Blob([pdfBuffer], { type: "application/pdf" });
+}
+
+function buildPdfFromJpeg(jpegBuffer, widthPx, heightPx) {
+  const pdfWidth = 842;
+  const pdfHeight = Math.round((heightPx / widthPx) * pdfWidth);
+  const imgData = bytesToBinaryString(new Uint8Array(jpegBuffer));
+  const contentStream = `q\n${pdfWidth} 0 0 ${pdfHeight} 0 0 cm\n/Im0 Do\nQ`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pdfWidth} ${pdfHeight}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`,
+    `<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream`,
+    `<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imgData.length} >>\nstream\n${imgData}\nendstream`,
+  ];
+  return buildPdfDocument(objects);
+}
+
+function buildPdfDocument(objects) {
+  let body = "%PDF-1.3\n";
+  const offsets = [0];
+  for (let index = 0; index < objects.length; index += 1) {
+    offsets.push(body.length);
+    body += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+  }
+  const xrefStart = body.length;
+  body += `xref\n0 ${objects.length + 1}\n`;
+  body += "0000000000 65535 f \n";
+  for (let index = 1; index < offsets.length; index += 1) {
+    body += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+  }
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return new Uint8Array([...body].map((char) => char.charCodeAt(0))).buffer;
+}
+
+function bytesToBinaryString(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return binary;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function createExportFilename(format) {
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("")
+    + "-"
+    + [
+      String(now.getHours()).padStart(2, "0"),
+      String(now.getMinutes()).padStart(2, "0"),
+      String(now.getSeconds()).padStart(2, "0"),
+    ].join("-");
+  return `room-plan-${stamp}.${format}`;
 }
